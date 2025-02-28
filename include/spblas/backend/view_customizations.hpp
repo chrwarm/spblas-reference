@@ -149,8 +149,8 @@ template <typename T, typename Extents, typename LayoutPolicy,
 auto tag_invoke(__backend::rows_fn_,
                 __mdspan::mdspan<T, Extents, LayoutPolicy, AccessorPolicy> m) {
   using index_type = tensor_index_t<decltype(m)>;
-  using reference =
-      __mdspan::mdspan<T, Extents, LayoutPolicy, AccessorPolicy>::reference;
+  using reference = typename __mdspan::mdspan<T, Extents, LayoutPolicy,
+                                              AccessorPolicy>::reference;
 
   auto row_indices = __ranges::views::iota(index_type(0), m.extent(0));
 

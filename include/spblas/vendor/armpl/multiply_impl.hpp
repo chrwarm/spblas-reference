@@ -7,6 +7,8 @@
 #include <spblas/detail/ranges.hpp>
 #include <spblas/detail/view_inspectors.hpp>
 
+#include <fmt/printf.h>
+
 namespace spblas {
 
 template <matrix A, vector B, vector C>
@@ -99,6 +101,113 @@ operation_info_t multiply_compute(A&& a, B&& b, C&& c) {
 
   armpl_spmat_t a_handle, b_handle, c_handle;
 
+#if 0
+  // ArmPL has a limitation that rows must be sorted
+  using T = tensor_scalar_t<A>;
+  using I = tensor_index_t<A>;
+  using O = tensor_offset_t<A>;
+
+  auto ma = __backend::shape(a_base)[0];
+  auto na = __backend::shape(a_base)[1];
+  auto nnzA = a_base.rowptr().data()[ma] - a_base.rowptr().data()[0];
+  std::vector<T> tmp_values_A(nnzA);
+  std::vector<I> tmp_colind_A(nnzA);
+
+  using T = tensor_scalar_t<B>;
+  using I = tensor_index_t<B>;
+  using O = tensor_offset_t<B>;
+
+  auto mb = __backend::shape(b_base)[0];
+  auto nb = __backend::shape(b_base)[1];
+  auto nnzB = b_base.rowptr().data()[mb] - b_base.rowptr().data()[0];
+  std::vector<T> tmp_values_B(nnzB);
+  std::vector<I> tmp_colind_B(nnzB);
+
+  auto get_permutation = [](I* v1, T* v2, O len) {
+    std::vector<armpl_int_t> indices(len);
+
+    for (size_t i = 0; i < indices.size(); ++i)
+      indices[i] = i;
+
+    std::sort(indices.begin(), indices.end(), [&](I i, I j) {
+      return v1[i] < v1[j]; // Sorting based on v1
+    });
+
+    return indices;
+  };
+
+  //  fmt::print("matrix A {}x{}\n", ma, na);
+  auto rowptr_A = a_base.rowptr().data();
+  auto colind_A = a_base.colind().data();
+  auto values_A = a_base.values().data();
+  auto index_base_A = rowptr_A[0];
+
+  for (armpl_int_t i = 0; i < ma; i++) {
+    auto indices =
+        get_permutation(&colind_A[rowptr_A[i]], &values_A[rowptr_A[i]],
+                        rowptr_A[i + 1] - rowptr_A[i]);
+
+//    std::vector<armpl_int_t> indices(rowptr_A[i + 1] - rowptr_A[i]);
+
+//    for (size_t i = 0; i < indices.size(); ++i)
+//      indices[i] = i;
+
+    auto start = rowptr_A[i];
+    for (size_t ii = 0; ii < indices.size(); ++ii) {
+      tmp_values_A[start + ii] = values_A[start + indices[ii]];
+      tmp_colind_A[start + ii] = colind_A[start + indices[ii]];
+    }
+
+    //    for (armpl_int_t j = rowptr_A[i] - index_base_A; j < rowptr_A[i + 1] -
+    //    index_base_A;
+    //         j++) {
+    //      fmt::print("row {} col {} val {}\n", i, tmp_colind_A[j],
+    //      tmp_values_A[j]);
+    //    }
+  }
+
+  //  fmt::print("matrix B {}x{}\n", mb, nb);
+
+  auto rowptr_B = b_base.rowptr().data();
+  auto colind_B = b_base.colind().data();
+  auto values_B = b_base.values().data();
+  auto index_base_B = rowptr_B[0];
+
+  for (armpl_int_t i = 0; i < mb; i++) {
+    auto indices =
+        get_permutation(&colind_B[rowptr_B[i]], &values_B[rowptr_B[i]],
+                        rowptr_B[i + 1] - rowptr_B[i]);
+
+//    std::vector<armpl_int_t> indices(rowptr_B[i + 1] - rowptr_B[i]);
+
+//    for (size_t i = 0; i < indices.size(); ++i)
+//      indices[i] = i;
+
+    auto start = rowptr_B[i];
+    for (size_t ii = 0; ii < indices.size(); ++ii) {
+      tmp_values_B[start + ii] = values_B[start + indices[ii]];
+      tmp_colind_B[start + ii] = colind_B[start + indices[ii]];
+    }
+
+    //    for (armpl_int_t j = rowptr_B[i] - index_base_B; j < rowptr_B[i + 1] -
+    //    index_base_B;
+    //         j++) {
+    //      fmt::print("row {} col {} val {}\n", i, tmp_colind_B[j],
+    //      tmp_values_B[j]);
+    //    }
+  }
+
+  __armpl::create_spmat_csr<tensor_scalar_t<A>>(
+      &a_handle, __backend::shape(a_base)[0], __backend::shape(a_base)[1],
+      a_base.rowptr().data(), tmp_colind_A.data(), tmp_values_A.data(),
+      ARMPL_SPARSE_CREATE_NOCOPY);
+
+  __armpl::create_spmat_csr<tensor_scalar_t<B>>(
+      &b_handle, __backend::shape(b_base)[0], __backend::shape(b_base)[1],
+      b_base.rowptr().data(), tmp_colind_B.data(), tmp_values_B.data(),
+      ARMPL_SPARSE_CREATE_NOCOPY);
+#else
+
   __armpl::create_spmat_csr<tensor_scalar_t<A>>(
       &a_handle, __backend::shape(a_base)[0], __backend::shape(a_base)[1],
       a_base.rowptr().data(), a_base.colind().data(), a_base.values().data(),
@@ -106,8 +215,9 @@ operation_info_t multiply_compute(A&& a, B&& b, C&& c) {
 
   __armpl::create_spmat_csr<tensor_scalar_t<B>>(
       &b_handle, __backend::shape(b_base)[0], __backend::shape(b_base)[1],
-      b_base.rowptr().data(), b_base.colind().data(), a_base.values().data(),
+      b_base.rowptr().data(), b_base.colind().data(), b_base.values().data(),
       ARMPL_SPARSE_CREATE_NOCOPY);
+#endif
 
   c_handle =
       armpl_spmat_create_null(__backend::shape(c)[0], __backend::shape(c)[1]);
@@ -115,6 +225,13 @@ operation_info_t multiply_compute(A&& a, B&& b, C&& c) {
   __armpl::spmm_exec<tensor_scalar_t<A>>(ARMPL_SPARSE_OPERATION_NOTRANS,
                                          ARMPL_SPARSE_OPERATION_NOTRANS, alpha,
                                          a_handle, b_handle, 0, c_handle);
+
+  /*
+      armpl_spmm_optimize(ARMPL_SPARSE_OPERATION_NOTRANS,
+                          ARMPL_SPARSE_OPERATION_NOTRANS,
+     ARMPL_SPARSE_SCALAR_ANY, a_handle, b_handle, ARMPL_SPARSE_SCALAR_ZERO,
+     c_handle);
+  */
 
   armpl_int_t index_base, m, n, nnz;
   armpl_spmat_query(c_handle, &index_base, &m, &n, &nnz);
